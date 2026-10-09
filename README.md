@@ -1,79 +1,66 @@
-# دستیار پرسش‌وپاسخ اسناد با RAG
+# RAG Document Assistant
 
-*Ask questions about your own documents and get answers with citations back to the exact passage. FastAPI + PyTorch (sentence-transformers) + SQLite — no vector database, no API key required. See below for the Persian write-up.*
+Ask a question about your own documents and get an answer that points back to the passage it came from.
 
-از اسناد خودت سؤال بپرس و پاسخی بگیر که **دقیقاً به همان قطعه‌ی متن ارجاع
-می‌دهد**. PDF یا Markdown آپلود کن، و هر جمله‌ی پاسخ به همان تکه‌ای که از آن
-آمده اشاره می‌کند.
+## Overview
 
-**FastAPI + PyTorch (sentence-transformers) + SQLite.** بدون نیاز به هیچ
-پایگاه‌داده‌ی برداری، بدون نیاز به کلید API.
+Upload a PDF, Markdown file, or plain text. The assistant retrieves the relevant sentences and either returns those sentences unchanged or, if you configure a key, asks a hosted model to write from the same passages.
 
----
+The default path needs no API key and cannot invent a sentence: every sentence it returns already exists in the index.
 
-## به‌صورت پیش‌فرض آفلاین اجرا می‌شود
+## Features
 
-پایپ‌لاین حول دو رابط provider ساخته شده، هرکدام با یک پیش‌فرض محلی و یک
-ارتقای میزبانی‌شده:
+- Sentence-aware chunks with overlap, so a hit does not start in the middle of a thought
+- Cosine search over float32 blobs in SQLite, with vectors stored already normalized
+- Citations carry character offsets in the source document
+- Empty index returns a clear miss instead of crashing
+- A dimension mismatch after an embedding-model change returns an explicit error
+- Markdown headings stay in the retrieval signal and are stripped from the spoken answer
+- Overlapping duplicate sentences are collapsed in the final answer
 
-| لایه | پیش‌فرض (بدون کلید) | با `ANTHROPIC_API_KEY` |
-|---|---|---|
-| بردارسازی (Embeddings) | `sentence-transformers/all-MiniLM-L6-v2`، محلی، ۳۸۴ بعدی | همان |
-| پاسخ‌دهی | **استخراجی** — جمله‌های بازیابی‌شده را عیناً برمی‌گرداند | **Claude** — نثر روان، مبتنی بر همان قطعه‌ها |
+## Technology Stack
 
-پاسخ‌دهنده‌ی استخراجی نمی‌تواند توهم بزند: هر جمله‌ای که برمی‌گرداند کلمه‌به‌کلمه
-در یک سند ایندکس‌شده وجود دارد. این باعث می‌شود دمو با صفر تنظیمات قابل‌اعتماد
-باشد، و سوییچ به Claude فقط یک متغیر محیطی است — لایه‌ی بازیابی تغییری نمی‌کند.
+- Python
+- FastAPI
+- sentence-transformers and PyTorch
+- SQLite
 
-```bash
-export ANTHROPIC_API_KEY=sk-...   # اختیاری؛ حالت استخراجی پیش‌فرض است
-```
+## Architecture
 
----
+`rag/` does not know about HTTP. `rag/api.py` does not know how an embedding is computed. Changing the embedder, the answerer, or the transport touches one file.
 
-## رفتار اندازه‌گیری‌شده
+| Layer | Default | With `ANTHROPIC_API_KEY` |
+| --- | --- | --- |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2`, local, 384 dimensions | Same |
+| Answer | Extractive: the retrieved sentences, unchanged | A hosted model writes prose from those same passages |
 
-از `demo.py` روی مجموعه‌ی نمونه‌ی همراه پروژه (۳ سند، ۴ قطعه)، مدل محلی روی
-CPU:
+The local index is aimed at about 100,000 chunks in one portable SQLite file.
 
-| سؤال | بازیابی‌شده | بالاترین امتیاز | تأخیر |
-|---|---|---|---|
-| «ودیعه‌ی استاندارد اجاره چقدر است؟» | `tenancy-handbook#0` | ۰٫۶۲۰ | ۱۶۵ میلی‌ثانیه |
-| «تعمیرات اضطراری چقدر سریع رسیدگی می‌شود؟» | `service-charter#0` | ۰٫۷۲۰ | ۷۳ میلی‌ثانیه |
-| «می‌توانم در آپارتمان طبقه‌ی سوم سگ نگه دارم؟» | `tenancy-handbook#1` | ۰٫۵۷۳ | ۸۳ میلی‌ثانیه |
-| «سیاست بازپرداخت پلن سالانه چیست؟» | `billing-policy#0` | ۰٫۴۱۶ | ۷۹ میلی‌ثانیه |
-
-سؤال سوم جالب است: هیچ‌جای مجموعه عبارت «طبقه‌ی سوم» را ندارد. بااین‌حال
-بازیابی روی بند مربوط به حیوانات خانگی می‌نشیند («فقط واحدهای طبقه‌ی
-همکف»)، که همان قطعه‌ای‌ست که برای پاسخ‌دادن لازم است.
-
----
-
-## شروع سریع
+## Installation
 
 ```bash
 python -m venv .venv
-.venv/Scripts/activate            # source .venv/bin/activate در Linux/macOS
-pip install -r requirements.txt
-
-python demo.py                    # اجرای سرتاسری روی sample_docs/
-uvicorn rag.api:app --reload      # API روی http://localhost:8000
-pytest tests -q                   # ۴۸ آزمون
 ```
 
-مستندات تعاملی API در `http://localhost:8000/docs`.
+Windows: `.venv\Scripts\activate`. Linux or macOS: `source .venv/bin/activate`.
 
----
+```bash
+pip install -r requirements.txt
+python demo.py
+uvicorn rag.api:app --reload
+```
 
-## API
+The API is at `http://localhost:8000`. Interactive docs are at `http://localhost:8000/docs`.
 
-| متد | مسیر | هدف |
-|---|---|---|
-| `GET` | `/health` | وضعیت ایندکس و این‌که کدام providerها فعال‌اند |
-| `GET` | `/documents` | فهرست اسناد ایندکس‌شده |
-| `POST` | `/documents` | آپلود یک فایل PDF / Markdown / متنی |
-| `DELETE` | `/documents/{id}` | حذف یک سند و قطعه‌های آن |
-| `POST` | `/query` | پرسیدن یک سؤال؛ پاسخ + منابع رتبه‌بندی‌شده برمی‌گرداند |
+## Usage
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/health` | Index status and which providers are active |
+| `GET` | `/documents` | Indexed documents |
+| `POST` | `/documents` | Upload a PDF, Markdown, or text file |
+| `DELETE` | `/documents/{id}` | Remove a document and its chunks |
+| `POST` | `/query` | Ask a question. Returns the answer and ranked sources |
 
 ```bash
 curl -F "file=@sample_docs/tenancy-handbook.md" http://localhost:8000/documents
@@ -83,63 +70,22 @@ curl -X POST -H "Content-Type: application/json" \
      http://localhost:8000/query
 ```
 
-هر پاسخ `/query` یک آرایه‌ی `sources` حمل می‌کند: برچسب استناد، عنوان سند،
-شماره‌ی قطعه، امتیاز کسینوسی، و یک گزیده‌ی ۲۸۰ کاراکتری — کافی برای این‌که
-یک رابط کاربری نشان دهد مدل *چرا* این را گفته.
+Each source includes a citation label, document title, chunk number, cosine score, and a 280-character excerpt.
 
----
+On the bundled sample (3 documents, 4 chunks) the local model on CPU retrieved the deposit, emergency-repair, pet, and refund passages. The pet question does not share the words "third floor" with the corpus. Retrieval still lands on the pet clause.
 
-## تصمیم‌های طراحی که ارزش توضیح دارند
+## Testing
 
-**قطعه‌بندی جمله‌آگاه با همپوشانی.** قطعه‌ها از جمله‌های کامل ساخته می‌شوند
-پس یک بازه‌ی بازیابی‌شده هرگز از وسط یک فکر شروع نمی‌شود، با ۱۵۰ کاراکتر
-همپوشانی تا پاسخی که روی مرز دو قطعه افتاده هم پیدا شود. جمله‌ای بلندتر از
-اندازه‌ی قطعه بر اساس طول شکسته می‌شود — بدون این حالت خاص، بافر هرگز خالی
-نمی‌شود و قطعه‌بندی تمام نمی‌شود.
-
-**شباهت کسینوسی در حدود ۱۵ خط به‌جای یک پایگاه‌داده‌ی برداری.** بردارها
-به‌صورت blob از نوع float32 در SQLite ذخیره می‌شوند و سطرها از قبل
-نرمال‌شده‌اند، پس ضرب داخلی *همان* کسینوس است. این روش تا حدود ۱۰۰ هزار
-قطعه را پوشش می‌دهد، ایندکس را در یک فایل قابل‌حمل نگه می‌دارد، و ریاضیات
-بازیابی را قابل‌ممیزی می‌کند به‌جای این‌که به یک جعبه‌سیاه واگذار شود.
-
-**مرزهای provider.** بسته‌ی `rag/` چیزی از HTTP نمی‌داند؛ `rag/api.py`
-چیزی از جزئیات داخلی embedding یا مدل نمی‌داند. عوض‌کردن مدل embedding، مدل
-پاسخ‌دهی، یا لایه‌ی انتقال، هرکدام فقط یک فایل را لمس می‌کند.
-
-**استنادها آفست کاراکتری حمل می‌کنند.** هر نتیجه `start_char`/`end_char` را
-در سند مبدأ ثبت می‌کند، پس یک رابط کاربری می‌تواند دقیقاً همان بازه را
-هایلایت کند، نه فقط نام فایل را نشان دهد.
-
----
-
-## چیزهایی که این کد پوشش می‌دهد و یک دمو معمولاً نه
-
-- کدگذاری‌های مختلط هنگام آپلود (fallback از UTF-8 به Latin-1)
-- پرس‌وجو روی ایندکس خالی قبل از ingest (یک «پیدا نشد» صادق برمی‌گرداند، نه کرش)
-- ناهم‌خوانی بُعد بردار بعد از تعویض مدل embedding (خطای واضح با راه‌حل)
-- عنوان‌های Markdown از پاسخ حذف می‌شوند ولی در سیگنال بازیابی می‌مانند
-- جمله‌های تکراری ناشی از همپوشانی قطعه‌ها در پاسخ نهایی یکی می‌شوند
-- رد شدن Claude (HTTP 200 با محتوای خالی) قبل از خواندن پاسخ بررسی می‌شود
-
----
-
-## ساختار
-
-```
-rag-document-assistant/
-├── rag/
-│   ├── chunking.py     # قطعه‌بندی جمله‌آگاه با همپوشانی
-│   ├── embeddings.py   # پروتکل provider + پیاده‌سازی محلی / hashing
-│   ├── store.py        # فروشگاه برداری SQLite، جست‌وجوی کسینوسی
-│   ├── answering.py    # پاسخ‌دهنده‌ی استخراجی و Claude
-│   ├── pipeline.py     # ingest / search / query — بدون آگاهی از HTTP
-│   └── api.py          # لایه‌ی FastAPI
-├── tests/test_rag.py   # ۴۸ آزمون
-├── sample_docs/
-└── demo.py
+```bash
+pytest tests -q
 ```
 
-## مجوز
+The suite has 48 tests.
+
+## Limitations
+
+The extractive answerer will not paraphrase. The hosted answerer is optional and is skipped when the key is missing or the provider returns an empty body. This is not a general web search.
+
+## License
 
 MIT
