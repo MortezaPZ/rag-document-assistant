@@ -86,6 +86,12 @@ The suite has 48 tests.
 
 The extractive answerer will not paraphrase. The hosted answerer is optional and is skipped when the key is missing or the provider returns an empty body. This is not a general web search.
 
+## Folder guides
+
+- [`rag/`](<rag/README.md>)
+- [`sample_docs/`](<sample_docs/README.md>)
+- [`tests/`](<tests/README.md>)
+
 ## License
 
 MIT
